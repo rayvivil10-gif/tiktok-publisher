@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Light Ray Publisher</title>
+<style>
+  body{
+    background:#151922;color:#EDE6D6;font-family:sans-serif;
+    max-width:480px;margin:0 auto;padding:32px 20px;text-align:center;
+  }
+  h1{color:#C9A227;font-size:22px;}
+  .btn{
+    display:inline-block;background:#C9A227;color:#151922;font-weight:600;
+    padding:12px 22px;border-radius:4px;text-decoration:none;margin-top:16px;
+    border:none;cursor:pointer;font-size:15px;
+  }
+  .status{margin-top:20px;padding:12px;border-radius:4px;background:#1E2430;font-size:14px;}
+  input[type="file"]{margin-top:20px;color:#B8B2A2;}
+  #result{margin-top:16px;font-size:13px;color:#B8B2A2;word-break:break-word;}
+</style>
+</head>
+<body>
+  <h1>Light Ray Publisher</h1>
+  <div class="status" id="statusBox">Vérification de la connexion...</div>
+
+  <div id="loginZone" style="display:none;">
+    <a class="btn" href="/login">Se connecter à TikTok</a>
+  </div>
+
+  <div id="uploadZone" style="display:none;">
+    <p>Connecté ✅</p>
+    <input type="file" id="videoFile" accept="video/mp4">
+    <br>
+    <button class="btn" onclick="uploadVideo()">Envoyer la vidéo</button>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    async function checkStatus() {
+      const res = await fetch('/status');
+      const data = await res.json();
+      document.getElementById('statusBox').textContent = data.connected
+        ? 'Connecté à TikTok (ID: ' + data.open_id + ')'
+        : 'Non connecté à TikTok';
+      document.getElementById('loginZone').style.display = data.connected ? 'none' : 'block';
+      document.getElementById('uploadZone').style.display = data.connected ? 'block' : 'none';
+    }
+
+    async function uploadVideo() {
+      const file = document.getElementById('videoFile').files[0];
+      if (!file) return alert('Choisis une vidéo d\'abord.');
+      const formData = new FormData();
+      formData.append('video', file);
+      document.getElementById('result').textContent = 'Envoi en cours...';
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      document.getElementById('result').textContent = data.success
+        ? '✅ ' + data.message
+        : '❌ Erreur : ' + JSON.stringify(data.error);
+    }
+
+    checkStatus();
+  </script>
+</body>
+</html>
