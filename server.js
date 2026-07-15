@@ -9,7 +9,7 @@ const app = express();
 const upload = multer({ dest: '/tmp/uploads/' });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 // ---- Config (à définir dans les variables d'environnement, jamais dans le code) ----
 const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
