@@ -9,7 +9,7 @@ const app = express();
 const upload = multer({ dest: '/tmp/uploads/' });
 
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ---- Config (à définir dans les variables d'environnement, jamais dans le code) ----
 const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
@@ -77,11 +77,13 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     return res.status(401).json({ error: 'Non connecté à TikTok. Va sur /login d\'abord.' });
   }
   const filePath = req.file.path;
+  const caption = req.body.caption || '';
   const stats = fs.statSync(filePath);
   const videoSize = stats.size;
 
   try {
-    // 1. Initialiser l'upload
+    // Note : en mode Sandbox/brouillon, TikTok n'accepte pas encore la légende
+    // automatiquement via l'API. Elle devra être collée manuellement dans l'appli.
     const initRes = await fetch('https://open.tiktokapis.com/v2/post/publish/inbox/video/init/', {
       method: 'POST',
       headers: {
