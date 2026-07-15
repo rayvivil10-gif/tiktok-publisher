@@ -11,6 +11,11 @@ const upload = multer({ dest: '/tmp/uploads/' });
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Route d'accueil explicite
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // ---- Config (à définir dans les variables d'environnement, jamais dans le code) ----
 const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
 const CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
