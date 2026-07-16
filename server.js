@@ -32,7 +32,7 @@ let session = {
 // ---- Étape 1 : lancer la connexion TikTok ----
 app.get('/login', (req, res) => {
   const state = Math.random().toString(36).substring(2);
-  const scope = 'user.info.basic,video.upload';
+  const scope = 'user.info.basic,video.upload,video.publish';
   const url = `https://www.tiktok.com/v2/auth/authorize/?client_key=${CLIENT_KEY}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}`;
   res.redirect(url);
 });
@@ -76,33 +76,52 @@ app.get('/status', (req, res) => {
   res.json({ connected: !!session.access_token, open_id: session.open_id });
 });
 
-// ---- Étape 3 : uploader une vidéo (mode brouillon, sandbox) ----
+// ---- Étape 3 : uploader une vidéo (mode brouillon OU publication directe) ----
 app.post('/upload', upload.single('video'), async (req, res) => {
   if (!session.access_token) {
     return res.status(401).json({ error: 'Non connecté à TikTok. Va sur /login d\'abord.' });
   }
   const filePath = req.file.path;
   const caption = req.body.caption || '';
+  const mode = req.body.mode || 'draft';
   const stats = fs.statSync(filePath);
   const videoSize = stats.size;
 
+  const initEndpoint = mode === 'direct'
+    ? 'https://open.tiktokapis.com/v2/post/publish/video/init/'
+    : 'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/';
+
+  const initBody = {
+    source_info: {
+      source: 'FILE_UPLOAD',
+      video_size: videoSize,
+      chunk_size: videoSize,
+      total_chunk_count: 1
+    }
+  };
+
+  // En mode Direct Post, TikTok exige les informations de confidentialité et de déclaration
+  if (mode === 'direct') {
+    initBody.post_info = {
+      title: caption,
+      privacy_level: req.body.privacy_level || 'SELF_ONLY',
+      disable_duet: false,
+      disable_comment: false,
+      disable_stitch: false,
+      video_cover_timestamp_ms: 1000,
+      brand_content_toggle: req.body.branded_content === 'true',
+      brand_organic_toggle: false
+    };
+  }
+
   try {
-    // Note : en mode Sandbox/brouillon, TikTok n'accepte pas encore la légende
-    // automatiquement via l'API. Elle devra être collée manuellement dans l'appli.
-    const initRes = await fetch('https://open.tiktokapis.com/v2/post/publish/inbox/video/init/', {
+    const initRes = await fetch(initEndpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
         'Content-Type': 'application/json; charset=UTF-8'
       },
-      body: JSON.stringify({
-        source_info: {
-          source: 'FILE_UPLOAD',
-          video_size: videoSize,
-          chunk_size: videoSize,
-          total_chunk_count: 1
-        }
-      })
+      body: JSON.stringify(initBody)
     });
     const initData = await initRes.json();
 
@@ -127,7 +146,10 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     fs.unlinkSync(filePath);
 
     if (putRes.ok) {
-      res.json({ success: true, publish_id, message: 'Vidéo envoyée ! Va vérifier ta boîte de réception TikTok pour finaliser la publication.' });
+      const message = mode === 'direct'
+        ? 'Vidéo publiée directement sur ton compte TikTok.'
+        : 'Vidéo envoyée ! Va vérifier ta boîte de réception TikTok pour finaliser la publication.';
+      res.json({ success: true, publish_id, message });
     } else {
       res.status(500).json({ error: 'Échec de l\'envoi du fichier', status: putRes.status });
     }
