@@ -32,7 +32,7 @@ let session = {
 // ---- Étape 1 : lancer la connexion TikTok ----
 app.get('/login', (req, res) => {
   const state = Math.random().toString(36).substring(2);
-  const scope = 'user.info.basic,video.upload,video.publish';
+  const scope = 'user.info.basic,video.upload';
   const url = `https://www.tiktok.com/v2/auth/authorize/?client_key=${CLIENT_KEY}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}`;
   res.redirect(url);
 });
