@@ -47,12 +47,43 @@
 
   <div id="uploadZone" style="display:none;">
     <p>Connecté ✅</p>
+
+    <label style="display:block;text-align:left;font-size:13px;color:var(--text-dim);margin-top:20px;">Mode de publication</label>
+    <select id="postMode" onchange="togglePrivacyBox()" style="width:100%;margin-top:6px;background:var(--dark-gray);color:var(--text);border:1px solid var(--mid-gray);padding:12px;font-size:14px;">
+      <option value="draft">Brouillon (à finaliser dans l'appli TikTok)</option>
+      <option value="direct">Publication directe</option>
+    </select>
+
+    <div id="directOptions" style="display:none;text-align:left;margin-top:16px;">
+      <label style="display:block;font-size:13px;color:var(--text-dim);">Qui peut voir cette vidéo ?</label>
+      <select id="privacyLevel" style="width:100%;margin-top:6px;background:var(--dark-gray);color:var(--text);border:1px solid var(--mid-gray);padding:12px;font-size:14px;">
+        <option value="PUBLIC_TO_EVERYONE">Public</option>
+        <option value="MUTUAL_FOLLOW_FRIENDS">Amis</option>
+        <option value="SELF_ONLY">Privé (moi uniquement)</option>
+      </select>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;color:var(--text-dim);">
+        <input type="checkbox" id="brandedContent"> Cette vidéo contient du contenu de marque / promotionnel
+      </label>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text-dim);">
+        <input type="checkbox" id="consentCheck" required> Je confirme vouloir publier cette vidéo directement sur mon compte TikTok, selon les <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" style="color:var(--text);">règles d'utilisation musicale</a> de TikTok.
+      </label>
+    </div>
+
     <textarea id="videoCaption" placeholder="Écris ta légende ici... (titre, description, hashtags)" rows="4"></textarea>
     <input type="file" id="videoFile" accept="video/mp4">
     <br>
     <button class="btn" onclick="uploadVideo()">Envoyer la vidéo</button>
     <div id="result"></div>
   </div>
+
+  <script>
+    function togglePrivacyBox() {
+      const mode = document.getElementById('postMode').value;
+      document.getElementById('directOptions').style.display = mode === 'direct' ? 'block' : 'none';
+    }
+  </script>
 
   <script>
     async function checkStatus() {
@@ -68,16 +99,34 @@
     async function uploadVideo() {
       const file = document.getElementById('videoFile').files[0];
       const caption = document.getElementById('videoCaption').value;
+      const mode = document.getElementById('postMode').value;
+
       if (!file) return alert('Choisis une vidéo d\'abord.');
+
+      if (mode === 'direct' && !document.getElementById('consentCheck').checked) {
+        return alert('Merci de cocher la case de confirmation avant de publier directement.');
+      }
+
       const formData = new FormData();
       formData.append('video', file);
       formData.append('caption', caption);
+      formData.append('mode', mode);
+      if (mode === 'direct') {
+        formData.append('privacy_level', document.getElementById('privacyLevel').value);
+        formData.append('branded_content', document.getElementById('brandedContent').checked);
+      }
+
       document.getElementById('result').textContent = 'Envoi en cours...';
       const res = await fetch('/upload', { method: 'POST', body: formData });
       const data = await res.json();
-      document.getElementById('result').textContent = data.success
-        ? '✅ Vidéo envoyée ! Va dans l\'appli TikTok → Brouillons.\n\n🏷️ Légende à coller :\n' + caption
-        : '❌ Erreur : ' + JSON.stringify(data.error);
+
+      if (!data.success) {
+        document.getElementById('result').textContent = '❌ Erreur : ' + JSON.stringify(data.error);
+      } else if (mode === 'direct') {
+        document.getElementById('result').textContent = '✅ Vidéo publiée directement sur TikTok !';
+      } else {
+        document.getElementById('result').textContent = '✅ Vidéo envoyée ! Va dans l\'appli TikTok → Brouillons.\n\n🏷️ Légende à coller :\n' + caption;
+      }
     }
 
     checkStatus();
