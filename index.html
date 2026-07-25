@@ -74,7 +74,15 @@
     <textarea id="videoCaption" placeholder="Écris ta légende ici... (titre, description, hashtags)" rows="4"></textarea>
     <input type="file" id="videoFile" accept="video/mp4">
     <br>
-    <button class="btn" onclick="uploadVideo()">Envoyer la vidéo</button>
+    <button class="btn" id="sendBtn" onclick="uploadVideo()">Envoyer la vidéo</button>
+
+    <div id="progressWrap" style="display:none;margin-top:20px;">
+      <div style="background:var(--dark-gray);border:1px solid var(--mid-gray);height:10px;width:100%;">
+        <div id="progressBar" style="background:var(--accent);height:100%;width:0%;transition:width 0.15s;"></div>
+      </div>
+      <div id="progressText" style="margin-top:8px;font-size:13px;color:var(--text-dim);">0%</div>
+    </div>
+
     <div id="result"></div>
   </div>
 
@@ -96,7 +104,7 @@
       document.getElementById('uploadZone').style.display = data.connected ? 'block' : 'none';
     }
 
-    async function uploadVideo() {
+    function uploadVideo() {
       const file = document.getElementById('videoFile').files[0];
       const caption = document.getElementById('videoCaption').value;
       const mode = document.getElementById('postMode').value;
@@ -116,20 +124,65 @@
         formData.append('branded_content', document.getElementById('brandedContent').checked);
       }
 
-      document.getElementById('result').textContent = 'Envoi en cours...';
-      const res = await fetch('/upload', { method: 'POST', body: formData });
-      const data = await res.json();
+      const sendBtn = document.getElementById('sendBtn');
+      const progressWrap = document.getElementById('progressWrap');
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+      const result = document.getElementById('result');
 
-      if (!data.success) {
-        document.getElementById('result').textContent = '❌ Erreur : ' + JSON.stringify(data.error);
-      } else if (mode === 'direct') {
-        document.getElementById('result').textContent = '✅ Vidéo publiée directement sur TikTok !';
-      } else {
-        document.getElementById('result').textContent = '✅ Vidéo envoyée ! Va dans l\'appli TikTok → Brouillons.\n\n🏷️ Légende à coller :\n' + caption;
-      }
+      sendBtn.disabled = true;
+      sendBtn.style.opacity = '0.6';
+      result.textContent = '';
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
+
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 100);
+          progressBar.style.width = percent + '%';
+          progressText.textContent = percent < 100
+            ? percent + '% envoyé...'
+            : '100% — traitement par TikTok...';
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        sendBtn.disabled = false;
+        sendBtn.style.opacity = '1';
+        progressWrap.style.display = 'none';
+
+        let data;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch (e) {
+          result.textContent = '❌ Réponse invalide du serveur.';
+          return;
+        }
+
+        if (!data.success) {
+          result.textContent = '❌ Erreur : ' + JSON.stringify(data.error);
+        } else if (mode === 'direct') {
+          result.textContent = '✅ Vidéo publiée directement sur TikTok !';
+        } else {
+          result.textContent = '✅ Vidéo envoyée ! Va dans l\'appli TikTok → Brouillons.\n\n🏷️ Légende à coller :\n' + caption;
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        sendBtn.disabled = false;
+        sendBtn.style.opacity = '1';
+        progressWrap.style.display = 'none';
+        result.textContent = '❌ Erreur réseau pendant l\'envoi.';
+      });
+
+      xhr.open('POST', '/upload');
+      xhr.send(formData);
     }
 
     checkStatus();
   </script>
 </body>
-</html>
+  </html>
