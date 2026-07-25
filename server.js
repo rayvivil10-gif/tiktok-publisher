@@ -1,15 +1,33 @@
 require('dotenv').config();
 const express = require('express');
+const expressSession = require('express-session');
 const fetch = require('node-fetch');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const upload = multer({ dest: '/tmp/uploads/' });
+const upload = multer({
+  dest: '/tmp/uploads/',
+  limits: { fileSize: 200 * 1024 * 1024 } // 200 Mo max
+});
+
+app.set('trust proxy', 1); // nécessaire sur Render (derrière un proxy) pour les cookies sécurisés
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Chaque visiteur reçoit désormais son propre cookie de session,
+// donc sa propre connexion TikTok, indépendante des autres utilisateurs.
+app.use(expressSession({
+  secret: process.env.SESSION_SECRET || 'change-moi-en-production',
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+    secure: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24h
+  }
+}));
 
 // Route d'accueil explicite
 app.get('/', (req, res) => {
@@ -19,19 +37,12 @@ app.get('/', (req, res) => {
 // ---- Config (à définir dans les variables d'environnement, jamais dans le code) ----
 const CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
 const CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
-const REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI; // ex: https://ton-projet.glitch.me/callback
-
-// Stockage simple en mémoire (usage personnel, un seul utilisateur)
-let session = {
-  access_token: null,
-  refresh_token: null,
-  open_id: null,
-  expires_at: null
-};
+const REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
 
 // ---- Étape 1 : lancer la connexion TikTok ----
 app.get('/login', (req, res) => {
   const state = Math.random().toString(36).substring(2);
+  req.session.oauth_state = state; // stocké pour vérifier au retour (sécurité)
   const scope = 'user.info.basic,video.upload';
   const url = `https://www.tiktok.com/v2/auth/authorize/?client_key=${CLIENT_KEY}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}`;
   res.redirect(url);
@@ -39,9 +50,12 @@ app.get('/login', (req, res) => {
 
 // ---- Étape 2 : TikTok redirige ici avec le code ----
 app.get('/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   if (error) return res.send(`Erreur de connexion TikTok : ${error}`);
   if (!code) return res.send('Aucun code reçu.');
+  if (state !== req.session.oauth_state) {
+    return res.status(400).send('Session invalide, réessaie de te connecter depuis /login.');
+  }
 
   try {
     const tokenRes = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
@@ -58,10 +72,10 @@ app.get('/callback', async (req, res) => {
     const data = await tokenRes.json();
 
     if (data.access_token) {
-      session.access_token = data.access_token;
-      session.refresh_token = data.refresh_token;
-      session.open_id = data.open_id;
-      session.expires_at = Date.now() + data.expires_in * 1000;
+      req.session.access_token = data.access_token;
+      req.session.refresh_token = data.refresh_token;
+      req.session.open_id = data.open_id;
+      req.session.expires_at = Date.now() + data.expires_in * 1000;
       res.redirect('/?connected=1');
     } else {
       res.send('Erreur lors de l\'échange du token : ' + JSON.stringify(data));
@@ -71,15 +85,28 @@ app.get('/callback', async (req, res) => {
   }
 });
 
-// ---- Vérifier l'état de connexion ----
+// ---- Vérifier l'état de connexion (propre à chaque visiteur) ----
 app.get('/status', (req, res) => {
-  res.json({ connected: !!session.access_token, open_id: session.open_id });
+  const expired = req.session.expires_at && Date.now() > req.session.expires_at;
+  if (expired) {
+    req.session.access_token = null;
+    req.session.open_id = null;
+  }
+  res.json({ connected: !!req.session.access_token, open_id: req.session.open_id });
+});
+
+// ---- Se déconnecter (utile pour retester la connexion) ----
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/'));
 });
 
 // ---- Étape 3 : uploader une vidéo (mode brouillon OU publication directe) ----
 app.post('/upload', upload.single('video'), async (req, res) => {
-  if (!session.access_token) {
+  if (!req.session.access_token) {
     return res.status(401).json({ error: 'Non connecté à TikTok. Va sur /login d\'abord.' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'Aucune vidéo reçue. Choisis un fichier avant d\'envoyer.' });
   }
   const filePath = req.file.path;
   const caption = req.body.caption || '';
@@ -100,7 +127,6 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     }
   };
 
-  // En mode Direct Post, TikTok exige les informations de confidentialité et de déclaration
   if (mode === 'direct') {
     initBody.post_info = {
       title: caption,
@@ -118,7 +144,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     const initRes = await fetch(initEndpoint, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${session.access_token}`,
+        'Authorization': `Bearer ${req.session.access_token}`,
         'Content-Type': 'application/json; charset=UTF-8'
       },
       body: JSON.stringify(initBody)
